@@ -151,8 +151,32 @@ impl Cpu {
         let mut addr: u16 = self.mem.data[zero_addr as usize] as u16;
         addr += (self.mem.data[(zero_addr.wrapping_add(1)) as usize] as u16) << 8;
         addr = addr.wrapping_add(self.regs.y as u16);
-        
+
         self.mem.data[addr as usize]
+    }
+
+    fn bcc(&mut self) {
+        let jump = self.mem.data[self.regs.pc as usize];
+        self.regs.pc += 1;
+        if self.regs.p & 0x01 == 0 {
+            self.regs.pc += jump as u16;
+        }
+    }
+
+    fn bcs(&mut self) {
+        let jump = self.mem.data[self.regs.pc as usize];
+        self.regs.pc += 1;
+        if self.regs.p & 0x01 != 1 {
+            self.regs.pc += jump as u16;
+        }
+    }
+    
+    fn beq(&mut self) {
+        let jump = self.mem.data[self.regs.pc as usize];
+        self.regs.pc += 1;
+        if self.regs.p & 0x02 == 0x02 {
+            self.regs.pc += jump as u16;
+        }
     }
 
     pub fn next_instruction(&mut self) {
@@ -227,6 +251,18 @@ impl Cpu {
                 value = self.get_indirect_y();
                 self.and(value);
             },
+            //ASL
+            0x0a => (),
+            0x06 => (),
+            0x16 => (),
+            0x0e => (),
+            0x1e => (),
+            //BCC
+            0x90 => self.bcc(),
+            //BCS
+            0xb0 => self.bcs(),
+            //BEQ
+            0xf0 => self.beq(),
             _ => println!("Error"),
         }
     }
