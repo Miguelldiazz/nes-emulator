@@ -1,5 +1,6 @@
 pub mod cpu;
 
 fn main() {
-    println!("Hello, world!");
+    let a: u8 = 255;
+    println!("{}", a.wrapping_add(255));
 }
