@@ -1,6 +1,7 @@
 pub mod cpu;
 
 fn main() {
-    let a: u8 = 255;
-    println!("{}", a.wrapping_add(255));
+    let mut a: u8 = 3;
+    a = a << 1;
+    println!("{}", a);
 }
