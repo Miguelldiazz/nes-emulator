@@ -21,12 +21,12 @@ impl Registers {
 }
 
 struct Memory {
-    data: [u8; 2048], //2 kb
+    data: [u8; 8192], //ram (0000-3fff), i/o (4000-7fff), rom(8000-ffff)
 }
 
 impl Memory {
     pub fn new() -> Memory {
-        Memory { data: [0; 2048] }
+        Memory { data: [0; 8192] }
     }
 }
 
@@ -79,7 +79,6 @@ impl Cpu {
         let carry = self.regs.p & 0x01;
         let aux = self.regs.a;
         self.regs.a = self.regs.a.wrapping_add(value).wrapping_add(carry);
-
         self.set_carry_flag(aux);
         self.set_overflow_flag(aux);
         self.set_negative_flag();        
@@ -111,38 +110,48 @@ impl Cpu {
     }
 
     fn get_absolute(&mut self) -> u8 {
-        let mut addr: u16 = (0x00ff & self.mem.data[self.regs.pc as usize] as u16) << 8;
+        let mut addr: u16 = self.mem.data[self.regs.pc as usize] as u16;
         self.regs.pc += 1;
-        addr = addr + self.mem.data[self.regs.pc as usize] as u16;
+        addr += (self.mem.data[self.regs.pc as usize] as u16) << 8;
         self.regs.pc += 1;
         self.mem.data[addr as usize]
     }
 
     fn get_absolute_x(&mut self) -> u8 {
-        let mut addr: u16 = (0x00ff & self.mem.data[self.regs.pc as usize] as u16) << 8;
+        let mut addr: u16 = self.mem.data[self.regs.pc as usize] as u16;
         self.regs.pc += 1;
-        addr = addr + self.mem.data[self.regs.pc as usize] as u16;
+        addr += (self.mem.data[self.regs.pc as usize] as u16) << 8;
         self.regs.pc += 1;
         addr = addr.wrapping_add(self.regs.x as u16);
         self.mem.data[addr as usize]
     }
 
     fn get_absolute_y(&mut self) -> u8 {
-        let mut addr: u16 = (0x00ff & self.mem.data[self.regs.pc as usize] as u16) << 8;
+        let mut addr: u16 = self.mem.data[self.regs.pc as usize] as u16;
         self.regs.pc += 1;
-        addr = addr + self.mem.data[self.regs.pc as usize] as u16;
+        addr += (self.mem.data[self.regs.pc as usize] as u16) << 8;
         self.regs.pc += 1;
         addr = addr.wrapping_add(self.regs.y as u16);
         self.mem.data[addr as usize]
     }
 
     fn get_indirect_x(&mut self) -> u8 {
-        let addr: u8 = self.get_zero().wrapping_add(self.regs.x);
+        let mut zero_addr: u8 = self.mem.data[self.regs.pc as usize];
+        self.regs.pc += 1;
+        zero_addr = zero_addr.wrapping_add(self.regs.x);
+        let mut addr: u16 = self.mem.data[zero_addr as usize] as u16;
+        addr += (self.mem.data[(zero_addr.wrapping_add(1)) as usize] as u16) << 8;
+
         self.mem.data[addr as usize]
     }
 
     fn get_indirect_y(&mut self) -> u8 {
-        let addr: u8 = self.get_zero().wrapping_add(self.regs.y);
+        let zero_addr: u8 = self.mem.data[self.regs.pc as usize];
+        self.regs.pc += 1;
+        let mut addr: u16 = self.mem.data[zero_addr as usize] as u16;
+        addr += (self.mem.data[(zero_addr.wrapping_add(1)) as usize] as u16) << 8;
+        addr = addr.wrapping_add(self.regs.y as u16);
+        
         self.mem.data[addr as usize]
     }
 
