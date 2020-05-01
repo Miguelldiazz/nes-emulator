@@ -36,16 +36,16 @@ impl Cpu {
         }
     }
 
-    fn set_zero_flag(&mut self, value: u8) {
-        if value == 0x00 {
+    fn set_zero_flag(&mut self, status: bool) {
+        if status {
             self.regs.p = self.regs.p | 0x02; //z = 1
         } else {
             self.regs.p = self.regs.p & 0xfd; //z = 0
         }
     }
 
-    fn set_negative_flag(&mut self, value: u8) {
-        if value & 0x80 == 0x80 {
+    fn set_negative_flag(&mut self, status: bool) {
+        if status {
             self.regs.p = self.regs.p | 0x80; //n = 1
         } else {
             self.regs.p = self.regs.p & 0x7f; //n = 0
@@ -106,14 +106,14 @@ impl Cpu {
         self.regs.a = self.regs.a.wrapping_add(value).wrapping_add(carry);
         self.check_wrap_carry(aux);
         self.set_overflow_flag_ex(aux);
-        self.set_negative_flag(self.regs.a);        
-        self.set_zero_flag(self.regs.a);
+        self.set_negative_flag(get_bit_at(self.regs.a, NEGATIVE) == SET);        
+        self.set_zero_flag(self.regs.a == 0);
     }
 
     fn and(&mut self, value: u8) {
         self.regs.a = self.regs.a & value;
-        self.set_zero_flag(self.regs.a);
-        self.set_negative_flag(self.regs.a);
+        self.set_zero_flag(self.regs.a == 0);
+        self.set_negative_flag(get_bit_at(self.regs.a, NEGATIVE) == SET);
     }
 
     fn get_immediate(&mut self) -> u16 {
@@ -151,34 +151,34 @@ impl Cpu {
         addr
     }
 
-    fn get_absolute_y(&mut self) -> u8 {
+    fn get_absolute_y(&mut self) -> u16 {
         let mut addr: u16 = self.mem.read(self.regs.pc) as u16;
         self.regs.pc += 1;
         addr += (self.mem.read(self.regs.pc) as u16) << 8;
         self.regs.pc += 1;
         addr = addr.wrapping_add(self.regs.y as u16);
 
-        self.mem.read(addr)
+        addr
     }
 
-    fn get_indirect_x(&mut self) -> u8 {
+    fn get_indirect_x(&mut self) -> u16 {
         let mut zero_addr: u8 = self.mem.read(self.regs.pc);
         self.regs.pc += 1;
         zero_addr = zero_addr.wrapping_add(self.regs.x);
         let mut addr: u16 = self.mem.read(zero_addr as u16) as u16;
         addr += (self.mem.read(zero_addr.wrapping_add(1) as u16) as u16) << 8;
 
-        self.mem.read(addr)
+        addr
     }
 
-    fn get_indirect_y(&mut self) -> u8 {
+    fn get_indirect_y(&mut self) -> u16 {
         let zero_addr: u8 = self.mem.read(self.regs.pc);
         self.regs.pc += 1;
         let mut addr: u16 = self.mem.read(zero_addr as u16) as u16;
         addr += (self.mem.read(zero_addr.wrapping_add(1) as u16) as u16) << 8;
         addr = addr.wrapping_add(self.regs.y as u16);
         
-        self.mem.read(addr)
+        addr
     }
 
     fn branch_if(&mut self, bit: u8, set: u8) {
@@ -192,17 +192,24 @@ impl Cpu {
     fn asl_acc(&mut self) {
         self.set_carry_flag(get_bit_at(self.regs.a, NEGATIVE) != 0);  //c = 1 if bits[7] == 1 else c = 0
         self.regs.a = self.regs.a.wrapping_mul(2);
-        self.set_negative_flag(self.regs.a);
-        self.set_zero_flag(self.regs.a)
+        self.set_negative_flag(get_bit_at(self.regs.a, NEGATIVE) == SET);
+        self.set_zero_flag(self.regs.a == 0);
     }
 
     fn asl_mem(&mut self, addr: u16) {
         let mut value = self.mem.read(addr);
         self.set_carry_flag(get_bit_at(value, NEGATIVE) != 0);  //c = 1 if bits[7] == 1 else c = 0        
         value = value.wrapping_mul(2);
-        self.set_negative_flag(value);
-        self.set_zero_flag(value);
+        self.set_negative_flag(get_bit_at(value, NEGATIVE) == SET);
+        self.set_zero_flag(value == 0);
         self.mem.write(addr, value);
+    }
+
+    fn cmp(&mut self, value: u8) {
+        let result = self.regs.a.wrapping_sub(value);
+        self.set_carry_flag(self.regs.a >= value);
+        self.set_zero_flag(self.regs.a == value);
+        self.set_negative_flag(get_bit_at(result, NEGATIVE) == SET);
     }
 
     pub fn next_instruction(&mut self) {
@@ -239,15 +246,18 @@ impl Cpu {
                 self.adc(value);
             },
             0x79 => {
-                value = self.get_absolute_y();
+                addr = self.get_absolute_y();
+                value = self.mem.read(addr);
                 self.adc(value);
             },
             0x61 => {
-                value = self.get_indirect_x();
+                addr = self.get_indirect_x();
+                value = self.mem.read(addr);
                 self.adc(value);
             },
             0x71 => {
-                value = self.get_indirect_y();
+                addr = self.get_indirect_y();
+                value = self.mem.read(addr);
                 self.adc(value);
             },
             //AND
@@ -277,15 +287,18 @@ impl Cpu {
                 self.and(value);
             },
             0x39 => {
-                value = self.get_absolute_y();
+                addr = self.get_absolute_y();
+                value = self.mem.read(addr);
                 self.and(value);
             },
             0x21 => {
-                value = self.get_indirect_x();
+                addr = self.get_indirect_x();
+                value = self.mem.read(addr);
                 self.and(value);
             },
             0x31 => {
-                value = self.get_indirect_y();
+                addr = self.get_indirect_y();
+                value = self.mem.read(addr);
                 self.and(value);
             },
             //ASL
@@ -313,8 +326,8 @@ impl Cpu {
             //BEQ
             0xf0 => self.branch_if(ZERO, SET),
             //BIT
-            0x24 => (),
-            0x2c => (),
+            0x24 => (),/////////////////////////////////////////////////////////////////////////////////
+            0x2c => (),/////////////////////////////////////////////////////////////////////////////////
             //BMI
             0x30 => self.branch_if(NEGATIVE, SET),
             //BNE
@@ -322,7 +335,7 @@ impl Cpu {
             //BPL
             0x10 => self.branch_if(NEGATIVE, CLEAR),
             //BRK
-            0x00 => (),
+            0x00 => (),/////////////////////////////////////////////////////////////////////////////////
             //BVC
             0x50 => self.branch_if(OVERFLOW, CLEAR),
             //BVS
@@ -336,14 +349,46 @@ impl Cpu {
             //CLV
             0xb8 => self.set_overflow_flag(false),
             //CMP
-            0xc9 => (),
-            0xc5 => (),
-            0xd5 => (),
-            0xcd => (),
-            0xdd => (),
-            0xd9 => (),
-            0xc1 => (),
-            0xd1 => (),
+            0xc9 => {
+                addr = self.get_immediate();
+                value = self.mem.read(addr);
+                self.cmp(value);
+            },
+            0xc5 => {
+                addr = self.get_zero();
+                value = self.mem.read(addr);
+                self.cmp(value);
+            },
+            0xd5 => {
+                addr = self.get_zero_x();
+                value = self.mem.read(addr);
+                self.cmp(value);
+            },
+            0xcd => {
+                addr = self.get_absolute();
+                value = self.mem.read(addr);
+                self.cmp(value);
+            },
+            0xdd => {
+                addr = self.get_absolute_x();
+                value = self.mem.read(addr);
+                self.cmp(value);
+            },
+            0xd9 => {
+                addr = self.get_absolute_y();
+                value = self.mem.read(addr);
+                self.cmp(value);
+            },
+            0xc1 => {
+                addr = self.get_indirect_x();
+                value = self.mem.read(addr);
+                self.cmp(value);
+            },
+            0xd1 => {
+                addr = self.get_indirect_y();
+                value = self.mem.read(addr);
+                self.cmp(value);
+            },
             //CPX
             0xe0 => (),
             0xe4 => (),
