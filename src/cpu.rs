@@ -52,8 +52,16 @@ impl Cpu {
         }
     }
 
-    fn set_overflow_flag(&mut self, aux: u8) {
+    fn set_overflow_flag_ex(&mut self, aux: u8) {
         if aux & 0x80 == self.regs.a & 0x80 {
+            self.regs.p = self.regs.p | 0x40; //v = 1
+        } else {
+            self.regs.p = self.regs.p & 0xbf; //v = 0
+        }
+    }
+
+    fn set_overflow_flag(&mut self, status: bool) {
+        if status {
             self.regs.p = self.regs.p | 0x40; //v = 1
         } else {
             self.regs.p = self.regs.p & 0xbf; //v = 0
@@ -65,6 +73,22 @@ impl Cpu {
             self.regs.p = self.regs.p | 0x01; //c =1
         } else {
             self.regs.p = self.regs.p & 0xfe; //c = 0
+        }
+    }
+
+    fn set_decimal_flag(&mut self, status: bool) {
+        if status {
+            self.regs.p = self.regs.p | 0x08; //d = 1
+        } else {
+            self.regs.p = self.regs.p & 0xf7; //d = 0
+        }
+    }
+
+    fn set_interrupt_flag(&mut self, status: bool) {
+        if status {
+            self.regs.p = self.regs.p | 0x04; //i = 1
+        } else {
+            self.regs.p = self.regs.p & 0xfb; //i = 0
         }
     }
 
@@ -81,7 +105,7 @@ impl Cpu {
         let aux = self.regs.a;
         self.regs.a = self.regs.a.wrapping_add(value).wrapping_add(carry);
         self.check_wrap_carry(aux);
-        self.set_overflow_flag(aux);
+        self.set_overflow_flag_ex(aux);
         self.set_negative_flag(self.regs.a);        
         self.set_zero_flag(self.regs.a);
     }
@@ -157,40 +181,16 @@ impl Cpu {
         self.mem.read(addr)
     }
 
-    fn bcc(&mut self) {
+    fn branch_if(&mut self, bit: u8, set: u8) {
         let jump = self.mem.read(self.regs.pc);
         self.regs.pc += 1;
-        if get_bit_at(self.regs.p, 0) == 0 {
-            self.regs.pc += jump as u16;
-        }
-    }
-
-    fn bcs(&mut self) {
-        let jump = self.mem.read(self.regs.pc);
-        self.regs.pc += 1;
-        if get_bit_at(self.regs.p, 0) == 1 {
-            self.regs.pc += jump as u16;
-        }
-    }
-    
-    fn beq(&mut self) {
-        let jump = self.mem.read(self.regs.pc);
-        self.regs.pc += 1;
-        if get_bit_at(self.regs.p, 1) == 1 {
-            self.regs.pc += jump as u16;
-        }
-    }
-
-    fn bne(&mut self) {
-        let jump = self.mem.read(self.regs.pc);
-        self.regs.pc += 1;
-        if get_bit_at(self.regs.p, 1) == 0 {
+        if get_bit_at(self.regs.p, bit) == set {
             self.regs.pc += jump as u16;
         }
     }
 
     fn asl_acc(&mut self) {
-        self.set_carry_flag(get_bit_at(self.regs.a, 7) != 0);  //c = 1 if bits[7] == 1 else c = 0
+        self.set_carry_flag(get_bit_at(self.regs.a, NEGATIVE) != 0);  //c = 1 if bits[7] == 1 else c = 0
         self.regs.a = self.regs.a.wrapping_mul(2);
         self.set_negative_flag(self.regs.a);
         self.set_zero_flag(self.regs.a)
@@ -198,7 +198,7 @@ impl Cpu {
 
     fn asl_mem(&mut self, addr: u16) {
         let mut value = self.mem.read(addr);
-        self.set_carry_flag(get_bit_at(value, 7) != 0);  //c = 1 if bits[7] == 1 else c = 0        
+        self.set_carry_flag(get_bit_at(value, NEGATIVE) != 0);  //c = 1 if bits[7] == 1 else c = 0        
         value = value.wrapping_mul(2);
         self.set_negative_flag(value);
         self.set_zero_flag(value);
@@ -307,34 +307,34 @@ impl Cpu {
                 self.asl_mem(addr);
             },
             //BCC
-            0x90 => self.bcc(),
+            0x90 => self.branch_if(CARRY, CLEAR),
             //BCS
-            0xb0 => self.bcs(),
+            0xb0 => self.branch_if(CARRY, SET),
             //BEQ
-            0xf0 => self.beq(),
+            0xf0 => self.branch_if(ZERO, SET),
             //BIT
             0x24 => (),
             0x2c => (),
             //BMI
-            0x30 => (),
+            0x30 => self.branch_if(NEGATIVE, SET),
             //BNE
-            0xd0 => self.bne(),
+            0xd0 => self.branch_if(ZERO, CLEAR),
             //BPL
-            0x10 => (),
+            0x10 => self.branch_if(NEGATIVE, CLEAR),
             //BRK
             0x00 => (),
             //BVC
-            0x50 => (),
+            0x50 => self.branch_if(OVERFLOW, CLEAR),
             //BVS
-            0x70 => (),
+            0x70 => self.branch_if(OVERFLOW, SET),
             //CLC
-            0x18 => (),
+            0x18 => self.set_carry_flag(false),
             //CLD
-            0xd8 => (),
+            0xd8 => self.set_decimal_flag(false),
             //CLI
-            0x58 => (),
+            0x58 => self.set_interrupt_flag(false),
             //CLV
-            0xb8 => (),
+            0xb8 => self.set_overflow_flag(false),
             //CMP
             0xc9 => (),
             0xc5 => (),
