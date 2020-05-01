@@ -1,4 +1,5 @@
 pub mod cpu;
+pub mod memory;
 
 fn main() {
     let mut a: u8 = 3;

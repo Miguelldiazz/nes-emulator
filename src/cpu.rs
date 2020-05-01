@@ -1,3 +1,5 @@
+use crate::memory::Memory;
+
 struct Registers {
     a: u8,   //accumulator
     x: u8,   //index
@@ -17,16 +19,6 @@ impl Registers {
             sp: 0xfd,
             p: 0x34,
         }
-    }
-}
-
-struct Memory {
-    data: [u8; 8192], //ram (0000-3fff), i/o (4000-7fff), rom(8000-ffff)
-}
-
-impl Memory {
-    pub fn new() -> Memory {
-        Memory { data: [0; 8192] }
     }
 }
 
@@ -92,71 +84,72 @@ impl Cpu {
     }
 
     fn get_immediate(&mut self) -> u8 {
-        let ret = self.mem.data[self.regs.pc as usize];
+        let ret = self.mem.read(self.regs.pc);
         self.regs.pc += 1;
         ret
     }
 
     fn get_zero(&mut self) -> u8 {
-        let addr: u16 = 0x00ff & self.mem.data[self.regs.pc as usize] as u16;
+        let addr: u16 = 0xff & self.mem.read(self.regs.pc) as u16;
         self.regs.pc += 1;
-        self.mem.data[addr as usize]
+        self.mem.read(addr)
     }
 
     fn get_zero_x(&mut self) -> u8 {
-        let addr: u8 = self.mem.data[self.regs.pc as usize].wrapping_add(self.regs.x);
+        let addr: u8 = self.mem.read(self.regs.pc).wrapping_add(self.regs.x);
         self.regs.pc += 1;
-        self.mem.data[addr as usize]
+        self.mem.read(addr as u16)
     }
 
     fn get_absolute(&mut self) -> u8 {
-        let mut addr: u16 = self.mem.data[self.regs.pc as usize] as u16;
+        let mut addr: u16 = self.mem.read(self.regs.pc) as u16;
         self.regs.pc += 1;
-        addr += (self.mem.data[self.regs.pc as usize] as u16) << 8;
+        addr += (self.mem.read(self.regs.pc) as u16) << 8;
         self.regs.pc += 1;
-        self.mem.data[addr as usize]
+        self.mem.read(addr)
     }
 
     fn get_absolute_x(&mut self) -> u8 {
-        let mut addr: u16 = self.mem.data[self.regs.pc as usize] as u16;
+        let mut addr: u16 = self.mem.read(self.regs.pc) as u16;
         self.regs.pc += 1;
-        addr += (self.mem.data[self.regs.pc as usize] as u16) << 8;
+        addr += (self.mem.read(self.regs.pc) as u16) << 8;
         self.regs.pc += 1;
         addr = addr.wrapping_add(self.regs.x as u16);
-        self.mem.data[addr as usize]
+        self.mem.read(addr)
     }
 
     fn get_absolute_y(&mut self) -> u8 {
-        let mut addr: u16 = self.mem.data[self.regs.pc as usize] as u16;
+        let mut addr: u16 = self.mem.read(self.regs.pc) as u16;
         self.regs.pc += 1;
-        addr += (self.mem.data[self.regs.pc as usize] as u16) << 8;
+        addr += (self.mem.read(self.regs.pc) as u16) << 8;
         self.regs.pc += 1;
         addr = addr.wrapping_add(self.regs.y as u16);
-        self.mem.data[addr as usize]
+
+        self.mem.read(addr)
     }
 
     fn get_indirect_x(&mut self) -> u8 {
-        let mut zero_addr: u8 = self.mem.data[self.regs.pc as usize];
+        let mut zero_addr: u8 = self.mem.read(self.regs.pc);
         self.regs.pc += 1;
         zero_addr = zero_addr.wrapping_add(self.regs.x);
-        let mut addr: u16 = self.mem.data[zero_addr as usize] as u16;
-        addr += (self.mem.data[(zero_addr.wrapping_add(1)) as usize] as u16) << 8;
+        let mut addr: u16 = self.mem.read(zero_addr as u16) as u16;
+        addr += (self.mem.read(zero_addr.wrapping_add(1) as u16) as u16) << 8;
 
-        self.mem.data[addr as usize]
+        self.mem.read(addr)
     }
 
     fn get_indirect_y(&mut self) -> u8 {
-        let zero_addr: u8 = self.mem.data[self.regs.pc as usize];
+        let zero_addr: u8 = self.mem.read(self.regs.pc);
         self.regs.pc += 1;
-        let mut addr: u16 = self.mem.data[zero_addr as usize] as u16;
-        addr += (self.mem.data[(zero_addr.wrapping_add(1)) as usize] as u16) << 8;
+        let mut addr: u16 = self.mem.read(zero_addr as u16) as u16;
+        addr += (self.mem.read(zero_addr.wrapping_add(1) as u16) as u16) << 8;
         addr = addr.wrapping_add(self.regs.y as u16);
-
-        self.mem.data[addr as usize]
+        
+        self.mem.read(addr)
     }
 
     fn bcc(&mut self) {
-        let jump = self.mem.data[self.regs.pc as usize];
+        let jump = self.mem.read(self.regs.pc);
         self.regs.pc += 1;
         if self.regs.p & 0x01 == 0 {
             self.regs.pc += jump as u16;
@@ -164,7 +157,7 @@ impl Cpu {
     }
 
     fn bcs(&mut self) {
-        let jump = self.mem.data[self.regs.pc as usize];
+        let jump = self.mem.read(self.regs.pc);
         self.regs.pc += 1;
         if self.regs.p & 0x01 != 1 {
             self.regs.pc += jump as u16;
@@ -172,7 +165,7 @@ impl Cpu {
     }
     
     fn beq(&mut self) {
-        let jump = self.mem.data[self.regs.pc as usize];
+        let jump = self.mem.read(self.regs.pc);
         self.regs.pc += 1;
         if self.regs.p & 0x02 == 0x02 {
             self.regs.pc += jump as u16;
@@ -180,7 +173,7 @@ impl Cpu {
     }
 
     fn bne(&mut self) {
-        let jump = self.mem.data[self.regs.pc as usize];
+        let jump = self.mem.read(self.regs.pc);
         self.regs.pc += 1;
         if self.regs.p & 0x02 != 0x02 {
             self.regs.pc += jump as u16;
@@ -188,7 +181,7 @@ impl Cpu {
     }
 
     pub fn next_instruction(&mut self) {
-        let opcode = self.mem.data[self.regs.pc as usize];
+        let opcode = self.mem.read(self.regs.pc);
         self.regs.pc += 1;
         let value: u8;
 
