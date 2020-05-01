@@ -134,6 +134,12 @@ impl Cpu {
         addr as u16
     }
 
+    fn get_zero_y(&mut self) -> u16 {
+        let addr: u8 = self.mem.read(self.regs.pc).wrapping_add(self.regs.y);
+        self.regs.pc += 1;
+        addr as u16
+    }
+
     fn get_absolute(&mut self) -> u16 {
         let mut addr: u16 = self.mem.read(self.regs.pc) as u16;
         self.regs.pc += 1;
@@ -157,6 +163,15 @@ impl Cpu {
         addr += (self.mem.read(self.regs.pc) as u16) << 8;
         self.regs.pc += 1;
         addr = addr.wrapping_add(self.regs.y as u16);
+
+        addr
+    }
+
+    fn get_indirect(&mut self) -> u16 {
+        let zero_addr: u8 = self.mem.read(self.regs.pc);
+        self.regs.pc += 1;
+        let mut addr: u16 = self.mem.read(zero_addr as u16) as u16;
+        addr += (self.mem.read(zero_addr.wrapping_add(1) as u16) as u16) << 8;
 
         addr
     }
@@ -191,16 +206,32 @@ impl Cpu {
 
     fn asl_acc(&mut self) {
         self.set_carry_flag(get_bit_at(self.regs.a, NEGATIVE) != 0);  //c = 1 if bits[7] == 1 else c = 0
-        self.regs.a = self.regs.a.wrapping_mul(2);
+        self.regs.a = self.regs.a << 1;
         self.set_negative_flag(get_bit_at(self.regs.a, NEGATIVE) == SET);
         self.set_zero_flag(self.regs.a == 0);
     }
 
     fn asl_mem(&mut self, addr: u16) {
         let mut value = self.mem.read(addr);
-        self.set_carry_flag(get_bit_at(value, NEGATIVE) != 0);  //c = 1 if bits[7] == 1 else c = 0        
-        value = value.wrapping_mul(2);
+        self.set_carry_flag(get_bit_at(value, NEGATIVE) == SET);  //c = 1 if bits[7] == 1 else c = 0        
+        value = value << 1;
         self.set_negative_flag(get_bit_at(value, NEGATIVE) == SET);
+        self.set_zero_flag(value == 0);
+        self.mem.write(addr, value);
+    }
+
+    fn lsr_acc(&mut self) {
+        self.set_carry_flag(get_bit_at(self.regs.a, 0) == SET);
+        self.set_negative_flag(false);
+        self.regs.a = self.regs.a >> 1;
+        self.set_zero_flag(self.regs.a == 0);
+    }
+
+    fn lsr_mem(&mut self, addr: u16) {
+        let mut value = self.mem.read(addr);
+        self.set_negative_flag(false);
+        self.set_carry_flag(get_bit_at(value, 0) == SET);
+        value = value >> 1;
         self.set_zero_flag(value == 0);
         self.mem.write(addr, value);
     }
@@ -267,6 +298,12 @@ impl Cpu {
     }
 
     fn eor(&mut self, value: u8) {
+        self.regs.a = self.regs.a ^ value;
+        self.set_zero_flag(self.regs.a == 0);
+        self.set_negative_flag(get_bit_at(self.regs.a, NEGATIVE) == SET)
+    }
+
+    fn ora(&mut self, value: u8) {
         self.regs.a = self.regs.a | value;
         self.set_zero_flag(self.regs.a == 0);
         self.set_negative_flag(get_bit_at(self.regs.a, NEGATIVE) == SET)
@@ -274,6 +311,48 @@ impl Cpu {
 
     fn jmp(&mut self, addr: u16) {
         self.regs.pc = addr;
+    }
+
+    fn push(&mut self, value: u8) {
+        self.mem.write(self.regs.sp as u16, value);
+        self.regs.sp -= 1;
+    }
+
+    fn pop(&mut self) -> u8 {
+        let ret = self.mem.read(self.regs.sp as u16);
+        self.regs.sp += 1;
+        ret
+    }
+
+    fn jsr(&mut self, addr: u16) {
+        let ret = self.regs.pc - 1;
+        self.push(((ret & 0xf0) >> 4) as u8);
+        self.push((ret & 0x0f) as u8);
+        self.jmp(addr);
+    }
+
+    fn lda(&mut self, value: u8) {
+        self.regs.a = value;
+        self.set_zero_flag(self.regs.a == 0);
+        self.set_negative_flag(get_bit_at(self.regs.a, NEGATIVE) == SET);
+    }
+
+    fn ldx(&mut self, value: u8) {
+        self.regs.x = value;
+        self.set_zero_flag(self.regs.x == 0);
+        self.set_negative_flag(get_bit_at(self.regs.x, NEGATIVE) == SET);
+    }
+
+    fn ldy(&mut self, value: u8) {
+        self.regs.y = value;
+        self.set_zero_flag(self.regs.y == 0);
+        self.set_negative_flag(get_bit_at(self.regs.y, NEGATIVE) == SET);
+    }
+
+    fn pla(&mut self) {
+        self.regs.a = self.pop();
+        self.set_zero_flag(self.regs.a == 0);
+        self.set_negative_flag(get_bit_at(self.regs.a, NEGATIVE) == SET);
     }
 
     pub fn next_instruction(&mut self) {
@@ -573,55 +652,177 @@ impl Cpu {
                 addr = self.get_absolute();
                 self.jmp(addr);
             },
-            0x6c => (),
+            0x6c => {
+                addr = self.get_indirect();
+                self.jmp(addr);
+            },
             //JSR
-            0x20 => (),
+            0x20 => {
+                addr = self.get_absolute();
+                self.jsr(addr);
+            },
             //LDA
-            0xa9 => (),
-            0xa5 => (),
-            0xb5 => (),
-            0xad => (),
-            0xbd => (),
-            0xb9 => (),
-            0xa1 => (),
-            0xb1 => (),
+            0xa9 => {
+                addr = self.get_immediate();
+                value = self.mem.read(addr);
+                self.lda(value);
+            },
+            0xa5 => {
+                addr = self.get_zero();
+                value = self.mem.read(addr);
+                self.lda(value);
+            },
+            0xb5 => {
+                addr = self.get_zero_x();
+                value = self.mem.read(addr);
+                self.lda(value);
+            },
+            0xad => {
+                addr = self.get_absolute();
+                value = self.mem.read(addr);
+                self.lda(value);
+            },
+            0xbd => {
+                addr = self.get_absolute_x();
+                value = self.mem.read(addr);
+                self.lda(value);
+            },
+            0xb9 => {
+                addr = self.get_absolute_y();
+                value = self.mem.read(addr);
+                self.lda(value);
+            },
+            0xa1 => {
+                addr = self.get_indirect_x();
+                value = self.mem.read(addr);
+                self.lda(value);
+            },
+            0xb1 => {
+                addr = self.get_indirect_y();
+                value = self.mem.read(addr);
+                self.lda(value);
+            },
             //LDX
-            0xa2 => (),
-            0xa6 => (),
-            0xb6 => (),
-            0xae => (),
-            0xbe => (),
+            0xa2 => {
+                addr = self.get_immediate();
+                value = self.mem.read(addr);
+                self.ldx(value);
+            },
+            0xa6 => {
+                addr = self.get_zero();
+                value = self.mem.read(addr);
+                self.ldx(value);
+            },
+            0xb6 => {
+                addr = self.get_zero_y();
+                value = self.mem.read(addr);
+                self.ldx(value);
+            },
+            0xae => {
+                addr = self.get_absolute();
+                value = self.mem.read(addr);
+                self.ldx(value);
+            },
+            0xbe => {
+                addr = self.get_absolute_y();
+                value = self.mem.read(addr);
+                self.ldx(value);
+            },
             //LDY
-            0xa0 => (),
-            0xa4 => (),
-            0xb4 => (),
-            0xac => (),
-            0xbc => (),
+            0xa0 => {
+                addr = self.get_immediate();
+                value = self.mem.read(addr);
+                self.ldy(value);
+            },
+            0xa4 => {
+                addr = self.get_zero();
+                value = self.mem.read(addr);
+                self.ldy(value);
+            },
+            0xb4 => {
+                addr = self.get_zero_x();
+                value = self.mem.read(addr);
+                self.ldy(value);
+            },
+            0xac => {
+                addr = self.get_absolute();
+                value = self.mem.read(addr);
+                self.ldy(value);
+            },
+            0xbc => {
+                addr = self.get_absolute_x();
+                value = self.mem.read(addr);
+                self.ldy(value);
+            },
             //LSR
-            0x4a => (),
-            0x46 => (),
-            0x56 => (),
-            0x4e => (),
-            0x5e => (),
+            0x4a => self.lsr_acc(),
+            0x46 => {
+                addr = self.get_zero();
+                self.lsr_mem(addr);
+            },
+            0x56 => {
+                addr = self.get_zero_x();
+                self.lsr_mem(addr);
+            },
+            0x4e => {
+                addr = self.get_absolute();
+                self.lsr_mem(addr);
+            },
+            0x5e => {
+                addr = self.get_absolute_x();
+                self.lsr_mem(addr);
+            },
             //NOP
             0xea => (),
             //ORA
-            0x09 => (),
-            0x05 => (),
-            0x15 => (),
-            0x0d => (), 
-            0x1d => (),
-            0x19 => (),
-            0x01 => (),
-            0x11 => (),
+            0x09 => {
+                addr = self.get_immediate();
+                value = self.mem.read(addr);
+                self.ora(value);
+            },
+            0x05 => {
+                addr = self.get_zero();
+                value = self.mem.read(addr);
+                self.ora(value);
+            },
+            0x15 => {
+                addr = self.get_zero_x();
+                value = self.mem.read(addr);
+                self.ora(value);
+            },
+            0x0d => {
+                addr = self.get_absolute();
+                value = self.mem.read(addr);
+                self.ora(value);
+            }, 
+            0x1d => {
+                addr = self.get_absolute_x();
+                value = self.mem.read(addr);
+                self.ora(value);
+            },
+            0x19 => {
+                addr = self.get_absolute_y();
+                value = self.mem.read(addr);
+                self.ora(value);
+            },
+            0x01 => {
+                addr = self.get_indirect_x();
+                value = self.mem.read(addr);
+                self.ora(value);
+            },
+            0x11 => {
+                addr = self.get_indirect_y();
+                value = self.mem.read(addr);
+                self.ora(value);
+            },
             //PHA
-            0x48 => (),
+            0x48 => self.push(self.regs.a),
             //PHP
-            0x08 => (),
+            0x08 => self.push(self.regs.p),
             //PLA
-            0x68 => (),
+            0x68 => self.pla(),
             //PLP
-            0x28 => (),
+            0x28 => self.regs.p = self.pop(),
             //ROL
             0x2a => (),
             0x26 => (),
