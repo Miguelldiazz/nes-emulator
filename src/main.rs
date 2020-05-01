@@ -1,8 +1,10 @@
 pub mod cpu;
 pub mod memory;
+pub mod utils;
+
+use crate::utils::*;
 
 fn main() {
-    let mut a: u8 = 3;
-    a = a << 1;
-    println!("{}", a);
+    let a: u8 = 4;
+    println!("{}", get_bit_at(a, 1));
 }

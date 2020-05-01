@@ -1,4 +1,5 @@
 use crate::memory::Memory;
+use crate::utils::*;
 
 struct Registers {
     a: u8,   //accumulator
@@ -35,16 +36,16 @@ impl Cpu {
         }
     }
 
-    fn set_zero_flag(&mut self) {
-        if self.regs.a == 0x00 {
+    fn set_zero_flag(&mut self, value: u8) {
+        if value == 0x00 {
             self.regs.p = self.regs.p | 0x02; //z = 1
         } else {
             self.regs.p = self.regs.p & 0xfd; //z = 0
         }
     }
 
-    fn set_negative_flag(&mut self) {
-        if self.regs.a & 0x80 == 0x80 {
+    fn set_negative_flag(&mut self, value: u8) {
+        if value & 0x80 == 0x80 {
             self.regs.p = self.regs.p | 0x80; //n = 1
         } else {
             self.regs.p = self.regs.p & 0x7f; //n = 0
@@ -59,11 +60,19 @@ impl Cpu {
         }
     }
 
-    fn set_carry_flag(&mut self, aux: u8) {
-        if aux > self.regs.a {
+    fn set_carry_flag(&mut self, status: bool) {
+        if status {
             self.regs.p = self.regs.p | 0x01; //c =1
         } else {
             self.regs.p = self.regs.p & 0xfe; //c = 0
+        }
+    }
+
+    fn check_wrap_carry(&mut self, aux: u8) {
+        if aux > self.regs.a {
+            self.set_carry_flag(true);
+        } else {
+            self.set_carry_flag(false);
         }
     }
 
@@ -71,51 +80,51 @@ impl Cpu {
         let carry = self.regs.p & 0x01;
         let aux = self.regs.a;
         self.regs.a = self.regs.a.wrapping_add(value).wrapping_add(carry);
-        self.set_carry_flag(aux);
+        self.check_wrap_carry(aux);
         self.set_overflow_flag(aux);
-        self.set_negative_flag();        
-        self.set_zero_flag();
+        self.set_negative_flag(self.regs.a);        
+        self.set_zero_flag(self.regs.a);
     }
 
     fn and(&mut self, value: u8) {
         self.regs.a = self.regs.a & value;
-        self.set_zero_flag();
-        self.set_negative_flag();
+        self.set_zero_flag(self.regs.a);
+        self.set_negative_flag(self.regs.a);
     }
 
-    fn get_immediate(&mut self) -> u8 {
-        let ret = self.mem.read(self.regs.pc);
+    fn get_immediate(&mut self) -> u16 {
+        let ret = self.regs.pc;
         self.regs.pc += 1;
         ret
     }
 
-    fn get_zero(&mut self) -> u8 {
+    fn get_zero(&mut self) -> u16 {
         let addr: u16 = 0xff & self.mem.read(self.regs.pc) as u16;
         self.regs.pc += 1;
-        self.mem.read(addr)
+        addr
     }
 
-    fn get_zero_x(&mut self) -> u8 {
+    fn get_zero_x(&mut self) -> u16 {
         let addr: u8 = self.mem.read(self.regs.pc).wrapping_add(self.regs.x);
         self.regs.pc += 1;
-        self.mem.read(addr as u16)
+        addr as u16
     }
 
-    fn get_absolute(&mut self) -> u8 {
+    fn get_absolute(&mut self) -> u16 {
         let mut addr: u16 = self.mem.read(self.regs.pc) as u16;
         self.regs.pc += 1;
         addr += (self.mem.read(self.regs.pc) as u16) << 8;
         self.regs.pc += 1;
-        self.mem.read(addr)
+        addr
     }
 
-    fn get_absolute_x(&mut self) -> u8 {
+    fn get_absolute_x(&mut self) -> u16 {
         let mut addr: u16 = self.mem.read(self.regs.pc) as u16;
         self.regs.pc += 1;
         addr += (self.mem.read(self.regs.pc) as u16) << 8;
         self.regs.pc += 1;
         addr = addr.wrapping_add(self.regs.x as u16);
-        self.mem.read(addr)
+        addr
     }
 
     fn get_absolute_y(&mut self) -> u8 {
@@ -151,7 +160,7 @@ impl Cpu {
     fn bcc(&mut self) {
         let jump = self.mem.read(self.regs.pc);
         self.regs.pc += 1;
-        if self.regs.p & 0x01 == 0 {
+        if get_bit_at(self.regs.p, 0) == 0 {
             self.regs.pc += jump as u16;
         }
     }
@@ -159,7 +168,7 @@ impl Cpu {
     fn bcs(&mut self) {
         let jump = self.mem.read(self.regs.pc);
         self.regs.pc += 1;
-        if self.regs.p & 0x01 != 1 {
+        if get_bit_at(self.regs.p, 0) == 1 {
             self.regs.pc += jump as u16;
         }
     }
@@ -167,7 +176,7 @@ impl Cpu {
     fn beq(&mut self) {
         let jump = self.mem.read(self.regs.pc);
         self.regs.pc += 1;
-        if self.regs.p & 0x02 == 0x02 {
+        if get_bit_at(self.regs.p, 1) == 1 {
             self.regs.pc += jump as u16;
         }
     }
@@ -175,36 +184,58 @@ impl Cpu {
     fn bne(&mut self) {
         let jump = self.mem.read(self.regs.pc);
         self.regs.pc += 1;
-        if self.regs.p & 0x02 != 0x02 {
+        if get_bit_at(self.regs.p, 1) == 0 {
             self.regs.pc += jump as u16;
         }
+    }
+
+    fn asl_acc(&mut self) {
+        self.set_carry_flag(get_bit_at(self.regs.a, 7) != 0);  //c = 1 if bits[7] == 1 else c = 0
+        self.regs.a = self.regs.a.wrapping_mul(2);
+        self.set_negative_flag(self.regs.a);
+        self.set_zero_flag(self.regs.a)
+    }
+
+    fn asl_mem(&mut self, addr: u16) {
+        let mut value = self.mem.read(addr);
+        self.set_carry_flag(get_bit_at(value, 7) != 0);  //c = 1 if bits[7] == 1 else c = 0        
+        value = value.wrapping_mul(2);
+        self.set_negative_flag(value);
+        self.set_zero_flag(value);
+        self.mem.write(addr, value);
     }
 
     pub fn next_instruction(&mut self) {
         let opcode = self.mem.read(self.regs.pc);
         self.regs.pc += 1;
         let value: u8;
+        let addr: u16;
 
         match opcode {
             //ADC
             0x69 => {
-                value = self.get_immediate();
+                addr = self.get_immediate();
+                value = self.mem.read(addr);
                 self.adc(value);
             },
             0x65 => {
-                value = self.get_zero();
+                addr = self.get_zero();
+                value = self.mem.read(addr);
                 self.adc(value);
             },
             0x75 => {
-                value = self.get_zero_x();
+                addr = self.get_zero_x();
+                value = self.mem.read(addr);
                 self.adc(value);
             },
             0x6d => {
-                value = self.get_absolute();
+                addr = self.get_absolute();
+                value = self.mem.read(addr);
                 self.adc(value);
             },
             0x7d => {
-                value = self.get_absolute_x();
+                addr = self.get_absolute_x();
+                value = self.mem.read(addr);
                 self.adc(value);
             },
             0x79 => {
@@ -221,23 +252,28 @@ impl Cpu {
             },
             //AND
             0x29 => {
-                value = self.get_immediate();
+                addr = self.get_immediate();
+                value = self.mem.read(addr);
                 self.and(value);
             },
             0x25 => {
-                value = self.get_zero();
+                addr = self.get_zero();
+                value = self.mem.read(addr);
                 self.and(value);
             },
             0x35 => {
-                value = self.get_zero_x();
+                addr = self.get_zero_x();
+                value = self.mem.read(addr);
                 self.and(value);
             },
             0x2d => {
-                value = self.get_absolute();
+                addr = self.get_absolute();
+                value = self.mem.read(addr);
                 self.and(value);
             },
             0x3d => {
-                value = self.get_absolute_x();
+                addr = self.get_absolute_x();
+                value = self.mem.read(addr);
                 self.and(value);
             },
             0x39 => {
@@ -253,11 +289,23 @@ impl Cpu {
                 self.and(value);
             },
             //ASL
-            0x0a => (),
-            0x06 => (),
-            0x16 => (),
-            0x0e => (),
-            0x1e => (),
+            0x0a => self.asl_acc(),
+            0x06 => {
+                addr = self.get_zero();
+                self.asl_mem(addr);
+            },
+            0x16 => {
+                addr = self.get_zero_x();
+                self.asl_mem(addr);
+            },
+            0x0e => {
+                addr = self.get_absolute();
+                self.asl_mem(addr);
+            },
+            0x1e => {
+                addr = self.get_absolute_x();
+                self.asl_mem(addr);
+            },
             //BCC
             0x90 => self.bcc(),
             //BCS
