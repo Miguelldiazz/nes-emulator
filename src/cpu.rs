@@ -212,6 +212,70 @@ impl Cpu {
         self.set_negative_flag(get_bit_at(result, NEGATIVE) == SET);
     }
 
+    fn cpx(&mut self, value: u8) {
+        let result = self.regs.x.wrapping_sub(value);
+        self.set_carry_flag(self.regs.x >= value);
+        self.set_zero_flag(self.regs.x == value);
+        self.set_negative_flag(get_bit_at(result, NEGATIVE) == SET);
+    }
+
+    fn cpy(&mut self, value: u8) {
+        let result = self.regs.y.wrapping_sub(value);
+        self.set_carry_flag(self.regs.y >= value);
+        self.set_zero_flag(self.regs.y == value);
+        self.set_negative_flag(get_bit_at(result, NEGATIVE) == SET);
+    }
+
+    fn dec(&mut self, addr: u16) {
+        let mut value = self.mem.read(addr);
+        value = value.wrapping_sub(1);
+        self.set_zero_flag(value == 0);
+        self.set_negative_flag(get_bit_at(value, NEGATIVE) == SET);
+        self.mem.write(addr, value);
+    }
+
+    fn dex(&mut self) {
+        self.regs.x = self.regs.x.wrapping_sub(1);
+        self.set_zero_flag(self.regs.x == 0);
+        self.set_negative_flag(get_bit_at(self.regs.x, NEGATIVE) == SET);
+    }
+
+    fn dey(&mut self) {
+        self.regs.y = self.regs.y.wrapping_sub(1);
+        self.set_zero_flag(self.regs.y == 0);
+        self.set_negative_flag(get_bit_at(self.regs.y, NEGATIVE) == SET);
+    }
+
+    fn inc(&mut self, addr: u16) {
+        let mut value = self.mem.read(addr);
+        value = value.wrapping_add(1);
+        self.set_zero_flag(value == 0);
+        self.set_negative_flag(get_bit_at(value, NEGATIVE) == SET);
+        self.mem.write(addr, value);
+    }
+
+    fn inx(&mut self) {
+        self.regs.x = self.regs.x.wrapping_add(1);
+        self.set_zero_flag(self.regs.x == 0);
+        self.set_negative_flag(get_bit_at(self.regs.x, NEGATIVE) == SET);
+    }
+
+    fn iny(&mut self) {
+        self.regs.y = self.regs.y.wrapping_add(1);
+        self.set_zero_flag(self.regs.y == 0);
+        self.set_negative_flag(get_bit_at(self.regs.y, NEGATIVE) == SET);
+    }
+
+    fn eor(&mut self, value: u8) {
+        self.regs.a = self.regs.a | value;
+        self.set_zero_flag(self.regs.a == 0);
+        self.set_negative_flag(get_bit_at(self.regs.a, NEGATIVE) == SET)
+    }
+
+    fn jmp(&mut self, addr: u16) {
+        self.regs.pc = addr;
+    }
+
     pub fn next_instruction(&mut self) {
         let opcode = self.mem.read(self.regs.pc);
         self.regs.pc += 1;
@@ -390,42 +454,125 @@ impl Cpu {
                 self.cmp(value);
             },
             //CPX
-            0xe0 => (),
-            0xe4 => (),
-            0xec => (),
+            0xe0 => {
+                addr = self.get_immediate();
+                value = self.mem.read(addr);
+                self.cpx(value);
+            },
+            0xe4 => {
+                addr = self.get_zero();
+                value = self.mem.read(addr);
+                self.cpx(value);
+            },
+            0xec => {
+                addr = self.get_absolute();
+                value = self.mem.read(addr);
+                self.cpx(value);
+            },
             //CPY
-            0xc0 => (),
-            0xc4 => (),
-            0xcc => (),
+            0xc0 => {
+                addr = self.get_immediate();
+                value = self.mem.read(addr);
+                self.cpy(value);
+            },
+            0xc4 => {
+                addr = self.get_zero();
+                value = self.mem.read(addr);
+                self.cpy(value);
+            },
+            0xcc => {
+                addr = self.get_absolute();
+                value = self.mem.read(addr);
+                self.cpy(value);
+            },
             //DEC
-            0xc6 => (),
-            0xd6 => (),
-            0xce => (),
-            0xde => (),
+            0xc6 => {
+                addr = self.get_zero();
+                self.dec(addr);
+            },
+            0xd6 => {
+                addr = self.get_zero_x();
+                self.dec(addr);
+            },
+            0xce => {
+                addr = self.get_absolute();
+                self.dec(addr);
+            },
+            0xde => {
+                addr = self.get_absolute_x();
+                self.dec(addr);
+            },
             //DEX
-            0xca => (),
+            0xca => self.dex(),
             //DEY
-            0x88 => (),
+            0x88 => self.dey(),
             //EOR
-            0x49 => (),
-            0x45 => (),
-            0x55 => (),
-            0x4d => (),
-            0x5d => (),
-            0x59 => (),
-            0x41 => (),
-            0x51 => (),
+            0x49 => {
+                addr = self.get_immediate();
+                value = self.mem.read(addr);
+                self.eor(value);
+            },
+            0x45 => {
+                addr = self.get_zero();
+                value = self.mem.read(addr);
+                self.eor(value);
+            },
+            0x55 => {
+                addr = self.get_zero_x();
+                value = self.mem.read(addr);
+                self.eor(value);
+            },
+            0x4d => {
+                addr = self.get_absolute();
+                value = self.mem.read(addr);
+                self.eor(value);
+            },
+            0x5d => {
+                addr = self.get_absolute_x();
+                value = self.mem.read(addr);
+                self.eor(value);
+            },
+            0x59 => {
+                addr = self.get_absolute_y();
+                value = self.mem.read(addr);
+                self.eor(value);
+            },
+            0x41 => {
+                addr = self.get_indirect_x();
+                value = self.mem.read(addr);
+                self.eor(value);
+            },
+            0x51 => {
+                addr = self.get_indirect_y();
+                value = self.mem.read(addr);
+                self.eor(value);
+            },
             //INC
-            0xe6 => (),
-            0xf6 => (),
-            0xee => (), 
-            0xfe => (),
+            0xe6 => {
+                addr = self.get_zero();
+                self.inc(addr);
+            },
+            0xf6 => {
+                addr = self.get_zero_x();
+                self.inc(addr);
+            },
+            0xee => {
+                addr = self.get_absolute();
+                self.inc(addr);
+            }, 
+            0xfe => {
+                addr = self.get_absolute_x();
+                self.inc(addr);
+            },
             //INX
-            0xe8 => (),
+            0xe8 => self.inx(),
             //INY
-            0xc8 => (),
+            0xc8 => self.iny(),
             //JMP
-            0x4c => (),
+            0x4c => {
+                addr = self.get_absolute();
+                self.jmp(addr);
+            },
             0x6c => (),
             //JSR
             0x20 => (),
