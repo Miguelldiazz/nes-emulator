@@ -92,8 +92,16 @@ impl Cpu {
         }
     }
 
-    fn check_wrap_carry(&mut self, aux: u8) {
+    fn check_wrap_carry_adc(&mut self, aux: u8) {
         if aux > self.regs.a {
+            self.set_carry_flag(true);
+        } else {
+            self.set_carry_flag(false);
+        }
+    }
+
+    fn check_wrap_carry_sbc(&mut self, aux: u8) {
+        if aux < self.regs.a {
             self.set_carry_flag(true);
         } else {
             self.set_carry_flag(false);
@@ -104,7 +112,17 @@ impl Cpu {
         let carry = self.regs.p & 0x01;
         let aux = self.regs.a;
         self.regs.a = self.regs.a.wrapping_add(value).wrapping_add(carry);
-        self.check_wrap_carry(aux);
+        self.check_wrap_carry_adc(aux);
+        self.set_overflow_flag_ex(aux);
+        self.set_negative_flag(get_bit_at(self.regs.a, NEGATIVE) == SET);        
+        self.set_zero_flag(self.regs.a == 0);
+    }
+
+    fn sbc(&mut self, value: u8) {
+        let carry = self.regs.p & 0x01;
+        let aux = self.regs.a;
+        self.regs.a = self.regs.a.wrapping_sub(value).wrapping_sub(1 - carry);
+        self.check_wrap_carry_sbc(aux);
         self.set_overflow_flag_ex(aux);
         self.set_negative_flag(get_bit_at(self.regs.a, NEGATIVE) == SET);        
         self.set_zero_flag(self.regs.a == 0);
@@ -236,6 +254,38 @@ impl Cpu {
         self.mem.write(addr, value);
     }
 
+    fn ror_acc(&mut self) {
+        self.set_carry_flag(get_bit_at(self.regs.a, 0) == SET);
+        self.set_negative_flag(get_bit_at(self.regs.a, 0) == SET);
+        self.set_zero_flag(self.regs.a == 0);
+        self.regs.a = self.regs.a.rotate_right(1);
+    }
+
+    fn ror_mem(&mut self, addr: u16) {
+        let mut value = self.mem.read(addr);
+        self.set_carry_flag(get_bit_at(value, 0) == SET);
+        self.set_negative_flag(get_bit_at(value, 0) == SET);
+        self.set_zero_flag(self.regs.a == 0);
+        value = value.rotate_right(1);
+        self.mem.write(addr, value);
+    }
+
+    fn rol_acc(&mut self) {
+        self.set_carry_flag(get_bit_at(self.regs.a, 7) == SET);
+        self.set_negative_flag(get_bit_at(self.regs.a, 6) == SET);
+        self.set_zero_flag(self.regs.a == 0);
+        self.regs.a = self.regs.a.rotate_left(1);
+    }
+
+    fn rol_mem(&mut self, addr: u16) {
+        let mut value = self.mem.read(addr);
+        self.set_carry_flag(get_bit_at(value, 7) == SET);
+        self.set_negative_flag(get_bit_at(value, 6) == SET);
+        self.set_zero_flag(self.regs.a == 0);
+        value = value.rotate_left(1);
+        self.mem.write(addr, value);
+    }
+
     fn cmp(&mut self, value: u8) {
         let result = self.regs.a.wrapping_sub(value);
         self.set_carry_flag(self.regs.a >= value);
@@ -353,6 +403,36 @@ impl Cpu {
         self.regs.a = self.pop();
         self.set_zero_flag(self.regs.a == 0);
         self.set_negative_flag(get_bit_at(self.regs.a, NEGATIVE) == SET);
+    }
+
+    fn tax(&mut self) {
+        self.regs.x = self.regs.a;
+        self.set_zero_flag(self.regs.x == 0);
+        self.set_negative_flag(get_bit_at(self.regs.x, NEGATIVE) == SET)
+    }
+
+    fn txa(&mut self) {
+        self.regs.a = self.regs.x;
+        self.set_zero_flag(self.regs.a == 0);
+        self.set_negative_flag(get_bit_at(self.regs.a, NEGATIVE) == SET)
+    }
+
+    fn tay(&mut self) {
+        self.regs.y = self.regs.a;
+        self.set_zero_flag(self.regs.y == 0);
+        self.set_negative_flag(get_bit_at(self.regs.y, NEGATIVE) == SET)
+    }
+
+    fn tya(&mut self) {
+        self.regs.a = self.regs.y;
+        self.set_zero_flag(self.regs.a == 0);
+        self.set_negative_flag(get_bit_at(self.regs.a, NEGATIVE) == SET)
+    }
+
+    fn tsx(&mut self) {
+        self.regs.x = self.regs.sp;
+        self.set_zero_flag(self.regs.x == 0);
+        self.set_negative_flag(get_bit_at(self.regs.x, NEGATIVE) == SET)
     }
 
     pub fn next_instruction(&mut self) {
@@ -824,64 +904,159 @@ impl Cpu {
             //PLP
             0x28 => self.regs.p = self.pop(),
             //ROL
-            0x2a => (),
-            0x26 => (),
-            0x36 => (),
-            0x2e => (),
-            0x3e => (),
+            0x2a => self.rol_acc(),
+            0x26 => {
+                addr = self.get_zero();
+                self.rol_mem(addr);
+            },
+            0x36 => {
+                addr = self.get_zero_x();
+                self.rol_mem(addr);
+            },
+            0x2e => {
+                addr = self.get_absolute();
+                self.rol_mem(addr);
+            },
+            0x3e => {
+                addr = self.get_absolute_x();
+                self.rol_mem(addr);
+            },
             //ROR
-            0x6a => (),
-            0x66 => (),
-            0x76 => (),
-            0x6e => (),
-            0x7e => (),
+            0x6a => self.ror_acc(),
+            0x66 => {
+                addr = self.get_zero();
+                self.ror_mem(addr);
+            },
+            0x76 => {
+                addr = self.get_zero_x();
+                self.ror_mem(addr);
+            },
+            0x6e => {
+                addr = self.get_absolute();
+                self.ror_mem(addr);
+            },
+            0x7e => {
+                addr = self.get_absolute_x();
+                self.ror_mem(addr);
+            },
             //RTI
-            0x40 => (),
+            0x40 => (), /////////////////////////////////////////////////////////////////////////////////
             //RTS
-            0x60 => (),
+            0x60 => (), /////////////////////////////////////////////////////////////////////////////////
             //SBC
-            0xe9 => (),
-            0xe5 => (),
-            0xf5 => (),
-            0xed => (),
-            0xfd => (),
-            0xf9 => (),
-            0xe1 => (),
-            0xf1 => (),
+            0xe9 =>  {
+                addr = self.get_immediate();
+                value = self.mem.read(addr);
+                self.sbc(value);
+            },
+            0xe5 => {
+                addr = self.get_zero();
+                value = self.mem.read(addr);
+                self.sbc(value);
+            },
+            0xf5 => {
+                addr = self.get_zero_x();
+                value = self.mem.read(addr);
+                self.sbc(value);
+            },
+            0xed => {
+                addr = self.get_absolute();
+                value = self.mem.read(addr);
+                self.sbc(value);
+            },
+            0xfd => {
+                addr = self.get_absolute_x();
+                value = self.mem.read(addr);
+                self.sbc(value);
+            },
+            0xf9 => {
+                addr = self.get_absolute_y();
+                value = self.mem.read(addr);
+                self.sbc(value);
+            },
+            0xe1 => {
+                addr = self.get_indirect_x();
+                value = self.mem.read(addr);
+                self.sbc(value);
+            },
+            0xf1 => {
+                addr = self.get_indirect_y();
+                value = self.mem.read(addr);
+                self.sbc(value);
+            },
             //SEC
-            0x38 => (),
+            0x38 => self.set_carry_flag(true),
             //SED
-            0xf8 => (),
+            0xf8 => self.set_decimal_flag(true),
             //SEI
-            0x78 => (),
+            0x78 => self.set_interrupt_flag(true),
             //STA
-            0x85 => (),
-            0x95 => (),
-            0x8d => (),
-            0x9d => (),
-            0x99 => (),
-            0x81 => (),
-            0x91 => (),
+            0x85 => {
+                addr = self.get_zero();
+                self.mem.write(addr, self.regs.a);
+            },
+            0x95 => {
+                addr = self.get_zero_x();
+                self.mem.write(addr, self.regs.a);
+            },
+            0x8d => {
+                addr = self.get_absolute();
+                self.mem.write(addr, self.regs.a);
+            },
+            0x9d => {
+                addr = self.get_absolute_x();
+                self.mem.write(addr, self.regs.a);
+            },
+            0x99 => {
+                addr = self.get_absolute_y();
+                self.mem.write(addr, self.regs.a);
+            },
+            0x81 => {
+                addr = self.get_indirect_x();
+                self.mem.write(addr, self.regs.a);
+            },
+            0x91 => {
+                addr = self.get_indirect_y();
+                self.mem.write(addr, self.regs.a);
+            },
             //STX
-            0x86 => (),
-            0x96 => (),
-            0x8e => (),
+            0x86 => {
+                addr = self.get_zero();
+                self.mem.write(addr, self.regs.x);
+            },
+            0x96 => {
+                addr = self.get_zero_y();
+                self.mem.write(addr, self.regs.x);
+            },
+            0x8e => {
+                addr = self.get_absolute();
+                self.mem.write(addr, self.regs.x);
+            },
             //STY
-            0x84 => (),
-            0x94 => (),
-            0x8c => (),
+            0x84 => {
+                addr = self.get_zero();
+                self.mem.write(addr, self.regs.y);
+            },
+            0x94 => {
+                addr = self.get_zero_x();
+                self.mem.write(addr, self.regs.y);
+            },
+            0x8c => {
+                addr = self.get_absolute();
+                self.mem.write(addr, self.regs.y);
+            },
             //TAX
-            0xaa => (),
+            0xaa => self.tax(),
             //TAY
-            0xa8 => (),
+            0xa8 => self.tay(),
             //TSX
-            0xba => (),
+            0xba => self.tsx(),
             //TXA
-            0x8a => (),
+            0x8a => self.txa(),
             //TXS
-            0x9a => (),
+            0x9a => self.regs.sp = self.regs.x,
             //TYA
-            0x98 => (),
+            0x98 => self.tya(),
             _ => println!("Error"),
         }
     }
