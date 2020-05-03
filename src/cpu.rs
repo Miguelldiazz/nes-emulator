@@ -375,10 +375,35 @@ impl Cpu {
     }
 
     fn jsr(&mut self, addr: u16) {
-        let ret = self.regs.pc - 1;
-        self.push(((ret & 0xf0) >> 4) as u8);
-        self.push((ret & 0x0f) as u8);
+        let ret = self.regs.pc;
+        self.push(((ret & 0xff00) >> 8) as u8);
+        self.push((ret & 0x00ff) as u8);
         self.jmp(addr);
+    }
+
+    fn brk(&mut self) {
+        let ret = self.regs.pc;
+        self.push(((ret & 0xff00) >> 8) as u8);
+        self.push((ret & 0x00ff) as u8);
+        self.push(self.regs.p); 
+
+        let mut irq: u16 = (self.mem.read(0xffff) as u16) << 8;
+        irq += self.mem.read(0xfffe) as u16;
+
+        self.regs.pc = irq;////////////////////////////////////////////////////////////////B FLAG
+    }
+
+    fn rti(&mut self) {
+        self.regs.p = self.pop();
+        let mut pc: u16 = self.pop() as u16;
+        pc += (self.pop() as u16) << 8;
+        self.regs.pc = pc;
+    }
+
+    fn rts(&mut self) {
+        let mut pc: u16 = self.pop() as u16;
+        pc += (self.pop() as u16) << 8;
+        self.regs.pc = pc;
     }
 
     fn lda(&mut self, value: u8) {
@@ -433,6 +458,14 @@ impl Cpu {
         self.regs.x = self.regs.sp;
         self.set_zero_flag(self.regs.x == 0);
         self.set_negative_flag(get_bit_at(self.regs.x, NEGATIVE) == SET)
+    }
+
+    fn bit(&mut self, addr: u16) {
+        let mem = self.mem.read(addr);
+        let and = self.regs.a & mem;
+        self.set_zero_flag(and == 0);
+        self.set_overflow_flag(get_bit_at(mem, OVERFLOW) == SET);
+        self.set_negative_flag(get_bit_at(mem, NEGATIVE) == SET);
     }
 
     pub fn next_instruction(&mut self) {
@@ -549,8 +582,14 @@ impl Cpu {
             //BEQ
             0xf0 => self.branch_if(ZERO, SET),
             //BIT
-            0x24 => (),/////////////////////////////////////////////////////////////////////////////////
-            0x2c => (),/////////////////////////////////////////////////////////////////////////////////
+            0x24 => {
+                addr = self.get_zero();
+                self.bit(addr);
+            },
+            0x2c => {
+                addr = self.get_absolute();
+                self.bit(addr);
+            },
             //BMI
             0x30 => self.branch_if(NEGATIVE, SET),
             //BNE
@@ -558,7 +597,7 @@ impl Cpu {
             //BPL
             0x10 => self.branch_if(NEGATIVE, CLEAR),
             //BRK
-            0x00 => (),/////////////////////////////////////////////////////////////////////////////////
+            0x00 => self.brk(),
             //BVC
             0x50 => self.branch_if(OVERFLOW, CLEAR),
             //BVS
@@ -940,9 +979,9 @@ impl Cpu {
                 self.ror_mem(addr);
             },
             //RTI
-            0x40 => (), /////////////////////////////////////////////////////////////////////////////////
+            0x40 => self.rti(),
             //RTS
-            0x60 => (), /////////////////////////////////////////////////////////////////////////////////
+            0x60 => self.rts(),
             //SBC
             0xe9 =>  {
                 addr = self.get_immediate();
